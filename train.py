@@ -19,9 +19,15 @@ if config.model_name == 'ResNet50':
     # Load best available weights
     weights = ResNet50_Weights.DEFAULT
     model = resnet50(weights = weights)
-    # Attention: We need to modify the last layer to match our number of classes!
+    # Freeze all layers except the last classification layer
+    for param in model.parameters():
+        param.requires_grad = False
+    # Modify the last layer to match our number of classes
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, 1)
+    # Ensure the last layer's parameters are trainable
+    for param in model.fc.parameters():
+        param.requires_grad = True
 elif config.model_name == 'CustomCNN':
     # Load custom CNN model
     model = CustomCNN()
