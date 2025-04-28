@@ -3,16 +3,16 @@ import os, sys
 import numpy as np
 import torch.nn as nn
 from config import Config
-from utils import load_data
+from opacus import PrivacyEngine
+from utils import load_data, PDPRegularizedLoss
 from models import CustomCNN, DINO_wRegisters
 from opacus.validators import ModuleValidator
 from torchvision.models import resnet50, ResNet50_Weights
 from torch.utils.data import DataLoader, TensorDataset, Subset
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef
 
-# TODO: Add Implicit Loss regularization DP
-
 config = Config()
+assert not(config.dp_sgd and config.pdp_sgd), "DP-SGD and PDP-SGD cannot be used together."
 
 if config.model_name == 'ResNet50':
     # Load best available weights
@@ -36,6 +36,19 @@ elif config.model_name == 'DINO_wRegisters':
     # Load DINO model with registers
     model = DINO_wRegisters()
     model_transform = None
+
+if config.pdp_sgd:
+    print("Using PDP regularization for training...")
+    # Initialize the PDP loss function
+    base_loss_fn = nn.BCEWithLogitsLoss()
+    criterion = PDPRegularizedLoss(base_loss_fn, config.eta, config.sigma)
+else:
+    print("Using standard BCE loss for training...")
+    # Use standard BCE loss function
+    criterion = nn.BCEWithLogitsLoss()
+
+# Loss function and optimizer
+optimizer = torch.optim.Adam(model.parameters(), lr = config.learning_rate)
 
 if config.dp_sgd:
     print("Using Opacus DP-SGD for training...")
@@ -73,10 +86,6 @@ train_loader = DataLoader(train_dataset, batch_size = config.batch_size, shuffle
 val_loader = DataLoader(val_dataset, batch_size = config.batch_size, shuffle = False)
 test_loader = DataLoader(test_dataset, batch_size = config.batch_size, shuffle = False)
 
-# Loss function and optimizer
-criterion = nn.BCEWithLogitsLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr = config.learning_rate)
-
 # Early Stopping Parameters
 early_stopping_patience = config.early_stopping_patience
 early_stopping_delta = config.early_stopping_delta
@@ -88,6 +97,20 @@ best_model_state = None
 num_epochs = config.num_epochs
 print(f"\nStarting training w/ Model {config.model_name}...")
 
+if config.dp_sgd:
+    privacy_engine = PrivacyEngine()
+    model, optimizer, train_loader = privacy_engine.make_private_with_epsilon(
+        module = model,
+        optimizer = optimizer,
+        data_loader = train_loader,
+        epochs = config.num_epochs,
+        target_epsilon = config.epsilon,
+        target_delta = config.delta,
+        max_grad_norm = config.max_grad_norm,
+    )
+
+    print(f"Using sigma={optimizer.noise_multiplier} and C={config.max_grad_norm}")
+
 for epoch in range(num_epochs):
     model.train() # Set model to training mode
     running_train_loss = 0.0
@@ -98,7 +121,10 @@ for epoch in range(num_epochs):
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
-        loss = criterion(outputs.squeeze(), labels)
+        if config.pdp_sgd:
+            loss = criterion(model, inputs, labels)
+        else:
+            loss = criterion(outputs.squeeze(), labels)
         loss.backward()
         optimizer.step()
         running_train_loss += loss.item() * inputs.size(0)
@@ -119,7 +145,10 @@ for epoch in range(num_epochs):
         for inputs, labels in val_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
-            loss = criterion(outputs.squeeze(), labels)
+            if config.pdp_sgd:
+                loss = criterion(model, inputs, labels)
+            else:
+                loss = criterion(outputs.squeeze(), labels)
             running_val_loss += loss.item() * inputs.size(0)
             predicted = torch.sigmoid(outputs).squeeze() > 0.5
             epoch_val_predictions.extend(predicted.cpu().numpy())
@@ -129,7 +158,11 @@ for epoch in range(num_epochs):
     epoch_val_accuracy = accuracy_score(epoch_val_labels, epoch_val_predictions)
     epoch_val_mcc = matthews_corrcoef(epoch_val_labels, epoch_val_predictions)
 
-    print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {epoch_train_loss:.4f}, Train Acc: {epoch_train_accuracy:.4f}, Train MCC: {epoch_train_mcc:.4f}, Val Loss: {epoch_val_loss:.4f}, Val Acc: {epoch_val_accuracy:.4f}, Val MCC: {epoch_val_mcc:.4f}")
+    if config.dp_sgd:
+        epsilon = privacy_engine.get_epsilon(config.delta)
+        print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {epoch_train_loss:.4f}, Train Acc: {epoch_train_accuracy:.4f}, Train MCC: {epoch_train_mcc:.4f}, Val Loss: {epoch_val_loss:.4f}, Val Acc: {epoch_val_accuracy:.4f}, Val MCC: {epoch_val_mcc:.4f}, Epsilon: {epsilon:.2f}")
+    else:
+        print(f"Epoch {epoch + 1}/{num_epochs}, Train Loss: {epoch_train_loss:.4f}, Train Acc: {epoch_train_accuracy:.4f}, Train MCC: {epoch_train_mcc:.4f}, Val Loss: {epoch_val_loss:.4f}, Val Acc: {epoch_val_accuracy:.4f}, Val MCC: {epoch_val_mcc:.4f}")
 
     # Early Stopping Regularization
     if epoch_val_loss < best_val_loss - early_stopping_delta:
@@ -163,7 +196,10 @@ if best_model_state is not None:
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
-            loss = criterion(outputs.squeeze(), labels)
+            if config.pdp_sgd:
+                loss = criterion(model, inputs, labels)
+            else:
+                loss = criterion(outputs.squeeze(), labels)
             running_test_loss += loss.item() * inputs.size(0)
             predicted = torch.sigmoid(outputs).squeeze() > 0.5
             epoch_test_predictions.extend(predicted.cpu().numpy())
@@ -173,13 +209,18 @@ if best_model_state is not None:
     final_test_accuracy = accuracy_score(epoch_test_labels, epoch_test_predictions)
     final_test_precision = precision_score(epoch_test_labels, epoch_test_predictions)
     final_test_recall = recall_score(epoch_test_labels, epoch_test_predictions)
+    final_test_specificity = recall_score(epoch_test_labels, epoch_test_predictions, pos_label = 0)
     final_test_f1 = f1_score(epoch_test_labels, epoch_test_predictions)
     final_test_mcc = matthews_corrcoef(epoch_test_labels, epoch_test_predictions)
 
     print(f"\nFinal Test Results (Best Model):")
     print(f"\t- Loss: {final_test_loss:.4f}")
+    if config.dp_sgd:
+        epsilon = privacy_engine.get_epsilon(config.delta)
+        print(f"\t- Epsilon: {epsilon:.2f}")
     print(f"\t- Accuracy: {final_test_accuracy:.4f}")
     print(f"\t- Precision: {final_test_precision:.4f}")
-    print(f"\t- Recall: {final_test_recall:.4f}")
+    print(f"\t- Recall/Sensitivity: {final_test_recall:.4f}")
+    print(f"\t- Specificity: {final_test_specificity:.4f}")
     print(f"\t- F1 Score: {final_test_f1:.4f}")
     print(f"\t- MCC: {final_test_mcc:.4f}")

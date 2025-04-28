@@ -1,7 +1,8 @@
 import torch
-import os
+import os, sys
 import numpy as np
 from PIL import Image
+import torch.nn as nn
 from typing import Callable
 from torchvision.transforms import v2
 
@@ -57,3 +58,32 @@ def load_data(split : str, shuffle : bool = False, transform : Callable = None) 
         labels = [labels[i] for i in indices]
 
     return torch.stack(images), torch.tensor(labels, dtype=torch.float32)
+
+class PDPRegularizedLoss(nn.Module):
+    def __init__(self, base_loss_fn, eta, sigma):
+        """
+        Differential Privacy as Implicit Regularization (PDP) loss function.
+        
+        From https://arxiv.org/abs/2409.17144 
+        """
+        super().__init__()
+        self.base_loss_fn = base_loss_fn
+        self.kappa = eta ** 2 * sigma ** 2
+
+    def forward(self, model, inputs, targets):
+        """
+        Forward pass for the PDP loss function.
+        ---
+        Parameters:
+        model : nn.Module
+            The model to be trained.
+        inputs : torch.Tensor
+            The input data.
+        targets : torch.Tensor
+            The target labels.
+        """
+        base_loss, reg_loss = self.base_loss_fn(model(inputs).squeeze(), targets), 0.0
+        for param, input in zip(model.parameters(), inputs):
+            if param.requires_grad:
+                reg_loss += (param ** 2 * input ** 2).sum()
+        return base_loss + self.kappa * reg_loss

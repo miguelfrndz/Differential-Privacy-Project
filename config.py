@@ -17,5 +17,10 @@ class Config:
     # DP-SGD parameters
     dp_sgd: bool = False
     max_grad_norm = 1.2
-    epsilon = 50.0
+    epsilon = 50 # Test for 8, 25, 50
     delta = 1e-5 # Should be less than the inverse of the size of the training dataset
+
+    # PDP-SGD parameters
+    pdp_sgd: bool = False
+    eta: float = 0.1
+    sigma: float = 0.1
