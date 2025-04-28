@@ -4,13 +4,12 @@ import numpy as np
 import torch.nn as nn
 from config import Config
 from utils import load_data
-from models import CustomCNN
+from models import CustomCNN, DINO_wRegisters
 from opacus.validators import ModuleValidator
 from torchvision.models import resnet50, ResNet50_Weights
 from torch.utils.data import DataLoader, TensorDataset, Subset
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef
 
-# TODO: Add DINO model to compare with ResNet50
 # TODO: Add Implicit Loss regularization DP
 
 config = Config()
@@ -19,6 +18,7 @@ if config.model_name == 'ResNet50':
     # Load best available weights
     weights = ResNet50_Weights.DEFAULT
     model = resnet50(weights = weights)
+    model_transform = weights.transforms() # Preprocessing function for ResNet50
     # Freeze all layers except the last classification layer
     for param in model.parameters():
         param.requires_grad = False
@@ -31,6 +31,11 @@ if config.model_name == 'ResNet50':
 elif config.model_name == 'CustomCNN':
     # Load custom CNN model
     model = CustomCNN()
+    model_transform = None
+elif config.model_name == 'DINO_wRegisters':
+    # Load DINO model with registers
+    model = DINO_wRegisters()
+    model_transform = None
 
 if config.dp_sgd:
     print("Using Opacus DP-SGD for training...")
@@ -48,8 +53,8 @@ config.device = device
 model.to(device)
 
 # Load data
-train_images, train_labels = load_data('train', shuffle = True, transform = weights.transforms())
-test_images, test_labels = load_data('test', shuffle = False, transform = weights.transforms())
+train_images, train_labels = load_data('train', shuffle = True, transform = model_transform)
+test_images, test_labels = load_data('test', shuffle = False, transform = model_transform)
 
 # Create indices for train and validation split
 num_train = len(train_images)

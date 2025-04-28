@@ -1,6 +1,28 @@
 # Differential-Privacy-Project
 Repository for the Differential Privacy Project in the Information Security Course
 
+## Project Description
+
+TODO
+
+## Project Structure
+
+TODO
+
+## Project Setup
+
+1. Clone the repository
+2. Unzip the dataset and place it in the `data` folder
+```bash
+unzip data.zip
+```
+3. Create a virtual environment and install the required packages
+```bash
+python -m venv env
+source env/bin/activate  # On Windows use `env\Scripts\activate`
+pip install -r requirements.txt
+```
+
 ## Good References
 
 ## Libraries and Tools

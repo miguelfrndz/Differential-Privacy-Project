@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
-    model_name: str = 'ResNet50' # or 'CustomCNN'
+    model_name: str = 'ResNet50' # 'ResNet50', 'CustomCNN', or 'DINO_wRegisters'
     batch_size: int = 32
     learning_rate: float = 1e-3
     num_epochs: int = 100
