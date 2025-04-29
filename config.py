@@ -24,3 +24,9 @@ class Config:
     pdp_sgd: bool = False
     eta: float = 0.1
     sigma: float = 0.1
+
+    # Gradient Leakage parameters
+    perform_gradient_attack: bool = True # Flag to enable/disable the attack simulation
+    gradient_attack_iterations: int = 100 # Number of iterations for the attack
+    gradient_attack_lr: float = 1.0 # Learning rate for the attack optimizer
+    gradient_attack_alpha: float = 0.2 # Regularizer ratio

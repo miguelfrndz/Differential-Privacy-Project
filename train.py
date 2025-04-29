@@ -4,11 +4,11 @@ import numpy as np
 import torch.nn as nn
 from config import Config
 from opacus import PrivacyEngine
-from utils import load_data, PDPRegularizedLoss
 from models import CustomCNN, DINO_wRegisters
 from opacus.validators import ModuleValidator
 from torchvision.models import resnet50, ResNet50_Weights
 from torch.utils.data import DataLoader, TensorDataset, Subset
+from utils import load_data, PDPRegularizedLoss, perform_gradient_leakage_attack
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef
 
 config = Config()
@@ -133,10 +133,12 @@ for epoch in range(num_epochs):
         epoch_train_predictions.extend(predicted.cpu().numpy())
         epoch_train_labels.extend(labels.cpu().numpy())
 
+    # --- Calculate Training Metrics ---
     epoch_train_loss = running_train_loss / len(train_dataset)
     epoch_train_accuracy = accuracy_score(epoch_train_labels, epoch_train_predictions)
     epoch_train_mcc = matthews_corrcoef(epoch_train_labels, epoch_train_predictions)
 
+    # --- Validation Phase ---
     model.eval() # Set model to evaluation mode
     running_val_loss = 0.0
     epoch_val_predictions = []
@@ -225,3 +227,18 @@ if best_model_state is not None:
     print(f"\t- Specificity: {final_test_specificity:.4f}")
     print(f"\t- F1 Score: {final_test_f1:.4f}")
     print(f"\t- MCC: {final_test_mcc:.4f}")
+
+    # --- Gradient Leakage Attack ---
+    if config.perform_gradient_attack:
+        # Dictionary to store attack metrics over epochs
+        attack_metrics = {'iter': [], 'mse': [], 'ssim': []}
+        print("\nPerforming Gradient Leakage Attack...")
+        # Perform the attack on the test set
+        inputs, labels = test_dataset.tensors
+        inputs, labels = inputs[:5], labels[:5]
+        inputs, labels = inputs.to(device), labels.to(device)
+        reconstructed_inputs = perform_gradient_leakage_attack(model, criterion, inputs, labels, device, config, attack_metrics)
+
+        # Save attack metrics to file
+        np.savez('attack_metrics.npz', **attack_metrics)
+        print("Attack metrics saved to 'attack_metrics.npz'.")
