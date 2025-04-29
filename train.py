@@ -41,7 +41,8 @@ if config.pdp_sgd:
     print("Using PDP regularization for training...")
     # Initialize the PDP loss function
     base_loss_fn = nn.BCEWithLogitsLoss()
-    criterion = PDPRegularizedLoss(base_loss_fn, config.eta, config.sigma)
+    conv_pooling = True if config.model_name == 'CustomCNN' else False
+    criterion = PDPRegularizedLoss(base_loss_fn, config.eta, config.sigma, conv_pooling)
 else:
     print("Using standard BCE loss for training...")
     # Use standard BCE loss function

@@ -60,7 +60,7 @@ def load_data(split : str, shuffle : bool = False, transform : Callable = None) 
     return torch.stack(images), torch.tensor(labels, dtype=torch.float32)
 
 class PDPRegularizedLoss(nn.Module):
-    def __init__(self, base_loss_fn, eta, sigma):
+    def __init__(self, base_loss_fn, eta, sigma, conv_pooling = False):
         """
         Differential Privacy as Implicit Regularization (PDP) loss function.
         
@@ -69,6 +69,7 @@ class PDPRegularizedLoss(nn.Module):
         super().__init__()
         self.base_loss_fn = base_loss_fn
         self.kappa = eta ** 2 * sigma ** 2
+        self.conv_pooling = conv_pooling
 
     def forward(self, model, inputs, targets):
         """
@@ -84,6 +85,7 @@ class PDPRegularizedLoss(nn.Module):
         """
         base_loss, reg_loss = self.base_loss_fn(model(inputs).squeeze(), targets), 0.0
         for param, input in zip(model.parameters(), inputs):
+            if self.conv_pooling: param = param.mean()
             if param.requires_grad:
                 reg_loss += (param ** 2 * input ** 2).sum()
         return base_loss + self.kappa * reg_loss
