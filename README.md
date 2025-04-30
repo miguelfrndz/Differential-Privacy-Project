@@ -36,6 +36,7 @@ pip install -r requirements.txt
 - [DP via Loss Function Regularization (Univ. Granada)](https://arxiv.org/abs/2409.17144)
 - [Paper on Synthetic Data Generation](https://arxiv.org/pdf/2306.01684)
 - [Good Notes on Possible Attacks to DP-SGD](https://www.khoury.northeastern.edu/home/alina/classes/Fall2021/Lecture17_Notes.pdf)
+- [Another Good Reference on Gradient Leakage Attacks](https://link.springer.com/article/10.1007/s10462-023-10550-z)
 
 ## Datasets
 - [Hot-Dog vs Not Hot-Dog Dataset](https://www.kaggle.com/datasets/dansbecker/hot-dog-not-hot-dog/data)
