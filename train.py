@@ -235,10 +235,20 @@ if best_model_state is not None:
         print("\nPerforming Gradient Leakage Attack...")
         # Perform the attack on the test set
         inputs, labels = test_dataset.tensors
-        inputs, labels = inputs[:5], labels[:5]
+        inputs, labels = inputs[0].unsqueeze(0), labels[0].unsqueeze(0)
         inputs, labels = inputs.to(device), labels.to(device)
-        reconstructed_inputs = perform_gradient_leakage_attack(model, criterion, inputs, labels, device, config, attack_metrics)
-
+        input_shape = inputs.shape
+        model.eval()
+        model.zero_grad()
+        output = model(inputs)
+        if config.pdp_sgd:
+            loss = criterion(model, inputs, labels)
+        else:
+            loss = criterion(output.squeeze(), labels)
+        loss.backward()
+        true_gradients = [p.grad.clone() for p in model.parameters() if p.grad is not None]
+        model.zero_grad()
+        reconstructed_inputs = perform_gradient_leakage_attack(model, true_gradients, input_shape, input, config, attack_metrics)
         # Save attack metrics to file
         np.savez('attack_metrics.npz', **attack_metrics)
         print("Attack metrics saved to 'attack_metrics.npz'.")

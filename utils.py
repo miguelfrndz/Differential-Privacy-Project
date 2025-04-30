@@ -90,102 +90,56 @@ class PDPRegularizedLoss(nn.Module):
             if param.requires_grad:
                 reg_loss += (param ** 2 * input ** 2).sum()
         return base_loss + self.kappa * reg_loss
+    
+# --- Gradient Leakage Attack Simulation ---
+def perform_gradient_leakage_attack(model, true_gradients, input_shape, original_inputs, config, attack_metrics):
+    device = config.device
+    reconstructed_inputs = torch.randn(input_shape, requires_grad = True, device = device)
+    assert reconstructed_inputs.shape == original_inputs.shape, f"Reconstructed inputs shape ({reconstructed_inputs.shape}) must match original inputs shape ({original_inputs.shape})"
+    label_shape = (input_shape[0],)
+    reconstructed_labels = torch.randn(label_shape, requires_grad = True, device = device)
+    for it in range(config.gradient_attack_iterations):
+        mse, ssim = calculate_attack_metrics(reconstructed_inputs, original_inputs)
+        attack_metrics['iter'].append(it)
+        attack_metrics['mse'].append(mse)
+        attack_metrics['ssim'].append(ssim)
+        print(f"Iteration {it}: MSE: {mse}, SSIM: {ssim}")
+    return reconstructed_inputs.detach()
 
-# FIXME: This code is utter garbage :)
-# --- Gradient Leakage Attack ---
-# def perform_gradient_leakage_attack(model, loss_fn, original_inputs, original_labels, device_attack, config_attack, attack_metrics):
-#     model.eval()
-#     params = [p for p in model.parameters() if p.requires_grad]
-#     original_gradients = None
-#     optimizer_zero_grad = torch.optim.SGD(params, lr = 0) # Dummy optimizer to zero grads
-#     optimizer_zero_grad.zero_grad()
-#     if config_attack.pdp_sgd: # Handle PDP loss calculation if used
-#         original_loss = loss_fn(model, original_inputs, original_labels)
-#     else:
-#         outputs = model(original_inputs)
-#         original_loss = loss_fn(outputs.squeeze(), original_labels)
-#     # Compute gradients w.r.t model parameters
-#     original_gradients = torch.autograd.grad(original_loss, params, retain_graph=False, create_graph=False) # No need to create graph here
-#     original_gradients = [grad.detach() for grad in original_gradients] # Detach gradients
-#     # Initialize dummy data and labels randomly
-#     optimizer_zero_grad.zero_grad()
-#     dummy_data = torch.randn_like(original_inputs, requires_grad = True, device = device_attack)
-#     dummy_labels = torch.randn_like(original_labels, requires_grad = True, device = device_attack)
-#     # Use LBFGS optimizer, which often works well for GL Attacks
-#     optimizer_attack = torch.optim.LBFGS([dummy_data], lr = config_attack.gradient_attack_lr)
+# --- Attack Metrics Calculation Function ---
+def calculate_attack_metrics(reconstructed_batch, original_batch):
+    """
+    Calculates MSE and SSIM between reconstructed and original image batches.
+    Args:
+        reconstructed_batch (torch.Tensor): Batch of reconstructed images (B, C, H, W).
+        original_batch (torch.Tensor): Batch of original images (B, C, H, W).
+    Returns:
+        tuple: (average_mse, average_ssim) for the batch.
+    """
+    # Move tensors to CPU and convert to NumPy arrays
+    recon_np = reconstructed_batch.detach().cpu().numpy()
+    orig_np = original_batch.detach().cpu().numpy()
 
-#     # --- 3. Iterative Reconstruction ---
-#     for it in range(config_attack.gradient_attack_iterations):
-#         def closure():
-#             optimizer_attack.zero_grad()
-#             # Compute loss and gradients for dummy data
-#             model.zero_grad()
-#             if config_attack.pdp_sgd:
-#                 dummy_loss = loss_fn(model, dummy_data, dummy_labels)
-#             else:
-#                 dummy_outputs = model(dummy_data)
-#                 dummy_loss = loss_fn(dummy_outputs.squeeze(), dummy_labels)
-#             model.zero_grad()
-#             # Recalculate loss for gradient computation, ensuring graph retention if needed
-#             if config_attack.pdp_sgd:
-#                 temp_loss_for_grads = loss_fn(model, dummy_data, dummy_labels)
-#             else:
-#                 temp_outputs_for_grads = model(dummy_data)
-#                 temp_loss_for_grads = loss_fn(temp_outputs_for_grads.squeeze(), dummy_labels)
-#             # Compute gradients w.r.t model parameters using dummy data
-#             dummy_gradients = torch.autograd.grad(temp_loss_for_grads, params, create_graph = True)
-#             # Calculate the gradient matching loss (L2 distance)
-#             grad_diff = 0
-#             for W_orig, W_dummy in zip(original_gradients, dummy_gradients):
-#                 grad_diff += ((W_orig - W_dummy)**2).sum()
-#             # Backpropagate the gradient difference loss
-#             alpha = config_attack.gradient_attack_alpha
-#             total_attack_loss = grad_diff + alpha * dummy_loss
-#             # Backpropagate the combined attack loss w.r.t. dummy_data and dummy_labels
-#             total_attack_loss.backward()
-#             return total_attack_loss
-#         optimizer_attack.step(closure)
-#         mse, ssim = calculate_attack_metrics(dummy_data, original_inputs)
-#         attack_metrics['iter'].append(it)
-#         attack_metrics['mse'].append(mse)
-#         attack_metrics['ssim'].append(ssim)
-#         print(f"Iteration {it}: MSE: {mse}, SSIM: {ssim}")
-#     return dummy_data
+    batch_mse = 0.0
+    batch_ssim = 0.0
+    batch_size = recon_np.shape[0]
+    num_channels = recon_np.shape[1]
+    is_multichannel = num_channels > 1
 
-# # --- Attack Metrics Calculation Function ---
-# def calculate_attack_metrics(reconstructed_batch, original_batch):
-#     """
-#     Calculates MSE and SSIM between reconstructed and original image batches.
-#     Args:
-#         reconstructed_batch (torch.Tensor): Batch of reconstructed images (B, C, H, W).
-#         original_batch (torch.Tensor): Batch of original images (B, C, H, W).
-#     Returns:
-#         tuple: (average_mse, average_ssim) for the batch.
-#     """
-#     # Move tensors to CPU and convert to NumPy arrays
-#     recon_np = reconstructed_batch.detach().cpu().numpy()
-#     orig_np = original_batch.detach().cpu().numpy()
-
-#     batch_mse = 0.0
-#     batch_ssim = 0.0
-#     batch_size = recon_np.shape[0]
-#     num_channels = recon_np.shape[1]
-#     is_multichannel = num_channels > 1
-
-#     for i in range(batch_size):
-#         recon_img = recon_np[i]
-#         orig_img = orig_np[i]
-#         batch_mse += mean_squared_error(orig_img, recon_img)
-#         # Transpose from (C, H, W) to (H, W, C) if multichannel for skimage
-#         if is_multichannel:
-#             orig_img_ssim = np.transpose(orig_img, (1, 2, 0))
-#             recon_img_ssim = np.transpose(recon_img, (1, 2, 0))
-#             # data_range assumes images are in [0, 1] range after clamping in attack
-#             ssim_val = ssim(orig_img_ssim, recon_img_ssim, multichannel=True, channel_axis=-1, data_range=1.0)
-#         else:
-#             # For single channel (grayscale), remove channel dim: (1, H, W) -> (H, W)
-#             orig_img_ssim = orig_img.squeeze(0)
-#             recon_img_ssim = recon_img.squeeze(0)
-#             ssim_val = ssim(orig_img_ssim, recon_img_ssim, multichannel=False, data_range=1.0)
-#         batch_ssim += ssim_val
-#     return batch_mse / batch_size, batch_ssim / batch_size
+    for i in range(batch_size):
+        recon_img = recon_np[i]
+        orig_img = orig_np[i]
+        batch_mse += mean_squared_error(orig_img, recon_img)
+        # Transpose from (C, H, W) to (H, W, C) if multichannel for skimage
+        if is_multichannel:
+            orig_img_ssim = np.transpose(orig_img, (1, 2, 0))
+            recon_img_ssim = np.transpose(recon_img, (1, 2, 0))
+            # data_range assumes images are in [0, 1] range after clamping in attack
+            ssim_val = ssim(orig_img_ssim, recon_img_ssim, multichannel=True, channel_axis=-1, data_range=1.0)
+        else:
+            # For single channel (grayscale), remove channel dim: (1, H, W) -> (H, W)
+            orig_img_ssim = orig_img.squeeze(0)
+            recon_img_ssim = recon_img.squeeze(0)
+            ssim_val = ssim(orig_img_ssim, recon_img_ssim, multichannel=False, data_range=1.0)
+        batch_ssim += ssim_val
+    return batch_mse / batch_size, batch_ssim / batch_size
