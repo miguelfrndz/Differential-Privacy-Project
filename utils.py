@@ -96,14 +96,28 @@ def perform_gradient_leakage_attack(model, true_gradients, input_shape, original
     device = config.device
     reconstructed_inputs = torch.randn(input_shape, requires_grad = True, device = device)
     assert reconstructed_inputs.shape == original_inputs.shape, f"Reconstructed inputs shape ({reconstructed_inputs.shape}) must match original inputs shape ({original_inputs.shape})"
-    label_shape = (input_shape[0],)
+    label_shape = (input_shape[0], 1)
     reconstructed_labels = torch.randn(label_shape, requires_grad = True, device = device)
+    optimizer = torch.optim.LBFGS([reconstructed_inputs, reconstructed_labels], lr = config.gradient_attack_lr)
+    params = [p for p in model.parameters() if p.requires_grad]
     for it in range(config.gradient_attack_iterations):
+        def closure():
+            optimizer.zero_grad()
+            outputs = model(reconstructed_inputs)
+            target_probs = torch.sigmoid(reconstructed_labels)
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(outputs, target_probs)
+            dummy_grad = torch.autograd.grad(loss, params, create_graph = True)
+            grad_diff = 0
+            for dummy_g, true_g in zip(dummy_grad, true_gradients):
+                grad_diff += ((dummy_g - true_g) ** 2).sum()
+            grad_diff.backward()
+            return grad_diff
+        optimizer.step(closure)
         mse, ssim = calculate_attack_metrics(reconstructed_inputs, original_inputs)
         attack_metrics['iter'].append(it)
         attack_metrics['mse'].append(mse)
         attack_metrics['ssim'].append(ssim)
-        print(f"Iteration {it}: MSE: {mse}, SSIM: {ssim}")
+        print(f"Iteration {it + 1}/{config.gradient_attack_iterations}: MSE: {mse}, SSIM: {ssim}")
     return reconstructed_inputs.detach()
 
 # --- Attack Metrics Calculation Function ---
