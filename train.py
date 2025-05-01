@@ -3,6 +3,7 @@ import os, sys
 import numpy as np
 import torch.nn as nn
 from config import Config
+import matplotlib.pyplot as plt
 from opacus import PrivacyEngine
 from models import CustomCNN, DINO_wRegisters
 from opacus.validators import ModuleValidator
@@ -41,12 +42,14 @@ if config.pdp_sgd:
     print("Using PDP regularization for training...")
     # Initialize the PDP loss function
     base_loss_fn = nn.BCEWithLogitsLoss()
+    # base_loss_fn = nn.CrossEntropyLoss()
     conv_pooling = True if config.model_name == 'CustomCNN' else False
     criterion = PDPRegularizedLoss(base_loss_fn, config.eta, config.sigma, conv_pooling)
 else:
-    print("Using standard BCE loss for training...")
+    print("Using standard (Binary) Cross-Entropy loss for training...")
     # Use standard BCE loss function
     criterion = nn.BCEWithLogitsLoss()
+    # criterion = nn.CrossEntropyLoss()
 
 # Loss function and optimizer
 optimizer = torch.optim.Adam(model.parameters(), lr = config.learning_rate)
@@ -130,6 +133,7 @@ for epoch in range(num_epochs):
         optimizer.step()
         running_train_loss += loss.item() * inputs.size(0)
         predicted = torch.sigmoid(outputs).squeeze() > 0.5
+        # predicted = torch.argmax(outputs, dim = 1)
         epoch_train_predictions.extend(predicted.cpu().numpy())
         epoch_train_labels.extend(labels.cpu().numpy())
 
@@ -154,6 +158,7 @@ for epoch in range(num_epochs):
                 loss = criterion(outputs.squeeze(), labels)
             running_val_loss += loss.item() * inputs.size(0)
             predicted = torch.sigmoid(outputs).squeeze() > 0.5
+            # predicted = torch.argmax(outputs, dim = 1)
             epoch_val_predictions.extend(predicted.cpu().numpy())
             epoch_val_labels.extend(labels.cpu().numpy())
 
@@ -205,6 +210,7 @@ if best_model_state is not None:
                 loss = criterion(outputs.squeeze(), labels)
             running_test_loss += loss.item() * inputs.size(0)
             predicted = torch.sigmoid(outputs).squeeze() > 0.5
+            # predicted = torch.argmax(outputs, dim = 1)
             epoch_test_predictions.extend(predicted.cpu().numpy())
             epoch_test_labels.extend(labels.cpu().numpy())
 
@@ -229,27 +235,36 @@ if best_model_state is not None:
     print(f"\t- MCC: {final_test_mcc:.4f}")
 
     # --- Gradient Leakage Attack ---
-    if config.perform_gradient_attack:
-        # Dictionary to store attack metrics over epochs
-        attack_metrics = {'iter': [], 'mse': [], 'ssim': []}
-        print("\nPerforming Gradient Leakage Attack...")
-        # Perform the attack on the test set
-        inputs, labels = test_dataset.tensors
-        # Need to ensure first dimension corresponds to batch size
-        inputs, labels = inputs[0].unsqueeze(0), labels[0].unsqueeze(0).unsqueeze(0)
-        inputs, labels = inputs.to(device), labels.to(device)
-        input_shape = inputs.shape
-        model.eval()
-        model.zero_grad()
-        output = model(inputs)
-        if config.pdp_sgd:
-            loss = criterion(model, inputs, labels)
-        else:
-            loss = criterion(output, labels)
-        loss.backward()
-        true_gradients = [p.grad.clone() for p in model.parameters() if p.grad is not None]
-        model.zero_grad()
-        reconstructed_inputs = perform_gradient_leakage_attack(model, true_gradients, input_shape, inputs, config, attack_metrics)
-        # Save attack metrics to file
-        np.savez('attack_metrics.npz', **attack_metrics)
-        print("Attack metrics saved to 'attack_metrics.npz'.")
+    # if config.perform_gradient_attack:
+    #     # Dictionary to store attack metrics over epochs
+    #     attack_metrics = {'iter': [], 'mse': [], 'ssim': []}
+    #     print("\nPerforming Gradient Leakage Attack...")
+    #     # Perform the attack on the test set
+    #     inputs, labels = test_dataset.tensors
+    #     # Need to ensure first dimension corresponds to batch size
+    #     # inputs, labels = inputs[0].unsqueeze(0), labels[0].unsqueeze(0).unsqueeze(0)
+    #     inputs, labels = inputs[0].unsqueeze(0), labels[0]
+    #     inputs, labels = inputs.to(device), labels.to(device)
+    #     input_shape = inputs.shape
+    #     # Unfreeze all parameters in the model
+    #     for param in model.parameters():
+    #         param.requires_grad = True
+    #     model.eval()
+    #     model.zero_grad()
+    #     outputs = model(inputs)
+    #     if config.pdp_sgd:
+    #         loss = criterion(model, inputs, labels)
+    #     else:
+    #         # loss = criterion(outputs, labels)
+    #         loss = criterion(outputs.squeeze(), labels)
+    #     loss.backward()
+    #     true_gradients = [p.grad.clone() for p in model.parameters() if p.grad is not None]
+    #     model.zero_grad()
+    #     reconstructed_inputs = perform_gradient_leakage_attack(model, true_gradients, input_shape, inputs, config, attack_metrics)
+    #     # Save attack metrics to file
+    #     np.savez('attack_metrics.npz', **attack_metrics)
+    #     print("Attack metrics saved to 'attack_metrics.npz'.")
+
+    #     reconstructed_inputs = np.transpose(reconstructed_inputs.squeeze(0).cpu(), (1, 2, 0))
+    #     plt.imshow(reconstructed_inputs)
+    #     plt.show()

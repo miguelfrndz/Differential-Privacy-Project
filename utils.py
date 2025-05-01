@@ -96,23 +96,30 @@ def perform_gradient_leakage_attack(model, true_gradients, input_shape, original
     device = config.device
     reconstructed_inputs = torch.randn(input_shape, requires_grad = True, device = device)
     assert reconstructed_inputs.shape == original_inputs.shape, f"Reconstructed inputs shape ({reconstructed_inputs.shape}) must match original inputs shape ({original_inputs.shape})"
-    label_shape = (input_shape[0], 1)
+    label_shape = (input_shape[0], 10)
     reconstructed_labels = torch.randn(label_shape, requires_grad = True, device = device)
+    # reconstructed_labels = torch.argmin(torch.sum(true_gradients[-2], dim = -1), dim = -1).detach().unsqueeze(0).requires_grad_(False)
     optimizer = torch.optim.LBFGS([reconstructed_inputs, reconstructed_labels], lr = config.gradient_attack_lr)
-    params = [p for p in model.parameters() if p.requires_grad]
+    # params = [p for p in model.parameters() if p.requires_grad]
+    print(reconstructed_inputs.shape, reconstructed_labels.shape)
     for it in range(config.gradient_attack_iterations):
         def closure():
             optimizer.zero_grad()
+            model.zero_grad()
             outputs = model(reconstructed_inputs)
-            target_probs = torch.sigmoid(reconstructed_labels)
-            loss = torch.nn.functional.binary_cross_entropy_with_logits(outputs, target_probs)
-            dummy_grad = torch.autograd.grad(loss, params, create_graph = True)
-            grad_diff = 0
-            for dummy_g, true_g in zip(dummy_grad, true_gradients):
-                grad_diff += ((dummy_g - true_g) ** 2).sum()
+            loss = torch.nn.functional.cross_entropy(outputs, reconstructed_labels)
+            dummy_grad = torch.autograd.grad(loss, model.parameters(), create_graph = True)
+            # for i, g in enumerate(dummy_grad):
+            #     print(f"Dummy grad {i}: ||g||={g.norm().item():.4f}")
+            # for i, g in enumerate(true_gradients):
+            #     print(f"True grad {i}: ||g||={g.norm().item():.4f}")
+            grad_diff = sum(((dg - tg)**2).sum() / tg.numel()  for dg, tg in zip(dummy_grad, true_gradients))
+            grad_diff += config.gradient_attack_alpha * loss
             grad_diff.backward()
             return grad_diff
         optimizer.step(closure)
+        # with torch.no_grad():
+        #     reconstructed_inputs.clamp_(-1, 1)
         mse, ssim = calculate_attack_metrics(reconstructed_inputs, original_inputs)
         attack_metrics['iter'].append(it)
         attack_metrics['mse'].append(mse)
