@@ -64,6 +64,7 @@ pip install -r requirements.txt
 
 1. **Structural Similarity Index Measure (SSIM) Plot**
     ![SSIM Plot](static/SSIM_Evolution.pdf)
+    <iframe src="static/SSIM_Evolution.pdf" width="100%" height="500" frameborder="0" />
     ![SSIM Plot Filtered](static/SSIM_Evolution_Filtered.pdf)
 
 2. **Reconstruction Loss Plot**  
