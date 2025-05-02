@@ -1,135 +1,86 @@
+"""
+Deep Leakage from Gradients (DLG) Attack. Code inspired by:
+https://github.com/joshtowell/deep-leakage-from-gradients
+"""
+
 import torch
 import sys, os
 import numpy as np
 import torch.nn as nn
 from config import Config
-from models import CustomCNN
 import matplotlib.pyplot as plt
+from utils import cross_entropy_for_onehot, label_to_onehot, perform_gradient_leakage_attack
 from torchvision.transforms import v2
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader
-from utils import perform_gradient_leakage_attack
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef
+from models import SimpleCNN, MNIST_training_init
+torch.manual_seed(50)
 
 config = Config()
 
-# Set device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-config.device = device
-print(f"Using device: {device}")
-
-# Define transforms
 transform = v2.Compose([
-    v2.ToImage(), 
+    v2.Resize(32),
+    v2.CenterCrop(32),
+    v2.ToImage(),
     v2.ToDtype(torch.float32, scale = True),
-    v2.Normalize((0.1307,), (0.3081,))  # Mean and std for MNIST
-
+    # v2.Normalize((0.1307,), (0.3081,))  # Mean and std for MNIST
 ])
 
-# Load MNIST dataset
 train_dataset = MNIST(root = "./data", train = True, download = True, transform = transform)
 test_dataset = MNIST(root = "./data", train = False, download = True, transform = transform)
 
 train_loader = DataLoader(train_dataset, batch_size = config.batch_size, shuffle = True)
 test_loader = DataLoader(test_dataset, batch_size = config.batch_size, shuffle = False)
 
-class SimpleCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-        )
-        self.fc = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 128),
-            nn.ReLU(),
-            nn.Linear(128, 10)
-        )
+img_transform = v2.ToPILImage()
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.fc(x)
-        return x
+# Set device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+config.device = device
+print(f"Using device: {device}")
 
 model = SimpleCNN().to(device)
-num_epochs = 2
-
-# Loss and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr = config.learning_rate)
-
-for epoch in range(num_epochs):
-    model.train() # Set model to training mode
-    running_train_loss = 0.0
-    epoch_train_predictions = []
-    epoch_train_labels = []
-
-    for inputs, labels in train_loader:
-        inputs, labels = inputs.to(device), labels.to(device)
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        running_train_loss += loss.item() * inputs.size(0)
-        predicted = torch.argmax(outputs, dim = 1)
-        epoch_train_predictions.extend(predicted.cpu().numpy())
-        epoch_train_labels.extend(labels.cpu().numpy())
-
-    # --- Calculate Training Metrics ---
-    epoch_train_loss = running_train_loss / len(train_dataset)
-    epoch_train_accuracy = accuracy_score(epoch_train_labels, epoch_train_predictions)
-    epoch_train_mcc = matthews_corrcoef(epoch_train_labels, epoch_train_predictions)
-    
-    print(f"Epoch {epoch + 1}/{config.num_epochs}, Train Loss: {epoch_train_loss:.4f}, Train Accuracy: {epoch_train_accuracy:.4f}, Train MCC: {epoch_train_mcc:.4f}")
-
-    model.eval() # Set model to evaluation mode
-    running_test_loss = 0.0
-    epoch_test_predictions = []
-    epoch_test_labels = []
-
-    with torch.no_grad():
-        for inputs, labels in test_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            running_test_loss += loss.item() * inputs.size(0)
-            predicted = torch.argmax(outputs, dim = 1)
-            epoch_test_predictions.extend(predicted.cpu().numpy())
-            epoch_test_labels.extend(labels.cpu().numpy())
-
-    # --- Calculate Testing Metrics ---
-    epoch_test_loss = running_test_loss / len(test_dataset)
-    epoch_test_accuracy = accuracy_score(epoch_test_labels, epoch_test_predictions)
-    epoch_test_mcc = matthews_corrcoef(epoch_test_labels, epoch_test_predictions)
-
-    print(f"Epoch {epoch + 1}/{config.num_epochs}, Test Loss: {epoch_test_loss:.4f}, Test Accuracy: {epoch_test_accuracy:.4f}, Test MCC: {epoch_test_mcc:.4f}")
+model.apply(MNIST_training_init)
+criterion = cross_entropy_for_onehot
 
 # --- Gradient Leakage Attack ---
-if config.perform_gradient_attack:
-    # Dictionary to store attack metrics over epochs
-    attack_metrics = {'iter': [], 'mse': [], 'ssim': []}
-    print("\nPerforming Gradient Leakage Attack...")
-    inputs, labels = next(iter(test_loader))
-    inputs, labels = inputs[0].unsqueeze(0).to(device), labels[0].unsqueeze(0).to(device)
-    input_shape = inputs.shape
-    model.eval()
-    model.zero_grad()
-    outputs = model(inputs)
-    loss = criterion(outputs, labels)
-    loss.backward()
-    true_gradients = [p.grad.clone() for p in model.parameters() if p.grad is not None]
-    model.zero_grad()
-    reconstructed_inputs = perform_gradient_leakage_attack(model, true_gradients, input_shape, inputs, config, attack_metrics)
-    # Save attack metrics to file
-    np.savez('attack_metrics.npz', **attack_metrics)
-    print("Attack metrics saved to 'attack_metrics.npz'.")
+img_index = 45
+# Transformed and rescaled images
+gt_data = train_dataset[img_index][0].to(device)
+gt_data = gt_data.view(1, *gt_data.size())
+gt_label = torch.Tensor([train_dataset[img_index][1]]).long().to(device)
+gt_label = gt_label.view(1, )
+gt_onehot_label = label_to_onehot(gt_label, num_classes = 10, device = device)
 
-    reconstructed_inputs = np.transpose(reconstructed_inputs.squeeze(0).cpu(), (1, 2, 0))
-    plt.imshow(reconstructed_inputs, cmap = 'gray')
-    plt.show()
+print(f"Ground-Truth label is {gt_label.item()}")
+print(f"Onehot label is {torch.argmax(gt_onehot_label, dim=-1).item()}")
+
+# Compute original gradient using model
+out = model(gt_data)
+y = criterion(out, gt_onehot_label)
+dy_dx = torch.autograd.grad(y, model.parameters())
+true_gradients = list((_.detach().clone() for _ in dy_dx))
+
+history = {
+    'iteration': [],
+    'loss': [],
+    'SSIM': [],
+    'reconstructed_inputs': [],
+    'reconstructed_labels': []
+}
+
+perform_gradient_leakage_attack(model, true_gradients, input_shape = gt_data.size(), 
+        output_shape = gt_onehot_label.size(), criterion = criterion, 
+        original_inputs = gt_data, config = config, history = history
+)
+
+history['reconstructed_inputs'] = [img_transform(img) for img in history['reconstructed_inputs']]
+
+# Plot generated image from every 10th iteration
+plt.figure(figsize=(12, 3))
+for i in range(30):
+    plt.subplot(3, 10, i + 1)
+    plt.imshow(history['reconstructed_inputs'][i * 10], cmap = 'gray')
+    plt.title("iter=%d" % (i * 10))
+    plt.axis('off')
+plt.show()

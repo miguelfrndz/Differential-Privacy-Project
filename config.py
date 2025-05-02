@@ -27,6 +27,6 @@ class Config:
 
     # Gradient Leakage parameters
     perform_gradient_attack: bool = True # Flag to enable/disable the attack simulation
-    gradient_attack_iterations: int = 300 # Number of iterations for the attack
+    gradient_attack_iterations: int = 200 # Number of iterations for the attack
     gradient_attack_lr: float = 1.0 # Learning rate for the attack optimizer
     gradient_attack_alpha: float = 0.2 # Regularizer ratio

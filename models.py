@@ -38,3 +38,30 @@ class CustomCNN(nn.Module):
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+    
+def MNIST_training_init(m):
+    if hasattr(m, "weight"):
+        m.weight.data.uniform_(-0.5, 0.5)
+    if hasattr(m, "bias"):
+        m.bias.data.uniform_(-0.5, 0.5)
+    
+class SimpleCNN(nn.Module):
+    def __init__(self, num_classes = 10, num_channels = 1, num_filters = 12):
+        super().__init__()
+        self.body = nn.Sequential(
+            nn.Conv2d(num_channels, num_filters, kernel_size = 5, padding = 5//2, stride = 2),
+            nn.Sigmoid(),
+            nn.Conv2d(num_filters, num_filters, kernel_size = 5, padding = 5//2, stride = 2),
+            nn.Sigmoid(),
+            nn.Conv2d(num_filters, num_filters, kernel_size = 5, padding = 5//2, stride = 1),
+            nn.Sigmoid(),
+            nn.Conv2d(num_filters, num_filters, kernel_size = 5, padding = 5//2, stride = 1),
+            nn.Sigmoid(),
+        )
+        self.fc = nn.Linear(num_filters * 8 * 8, num_classes)
+        
+    def forward(self, x):
+        out = self.body(x)
+        out = out.view(out.size(0), -1)
+        out = self.fc(out)
+        return out

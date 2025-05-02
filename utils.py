@@ -91,41 +91,106 @@ class PDPRegularizedLoss(nn.Module):
                 reg_loss += (param ** 2 * input ** 2).sum()
         return base_loss + self.kappa * reg_loss
     
+def tv_loss(img):
+    """
+    Compute total variation loss.
+    Inputs:
+    - img: Image of shape (1, C, H, W) or (C, H, W)
+    Returns:
+    - loss: Total variation loss
+    """
+    if img.dim() == 4:
+        # Handle batches if necessary, assuming batch size 1 for attack
+        img = img.squeeze(0)
+        
+    _, H, W = img.size()
+    # Calculate differences for height and width dimensions
+    h_tv = torch.pow((img[:, 1:, :] - img[:, :-1, :]), 2).sum()
+    w_tv = torch.pow((img[:, :, 1:] - img[:, :, :-1]), 2).sum()
+    
+    return (h_tv + w_tv) / (H * W) # Normalize loss
+
 # --- Gradient Leakage Attack Simulation ---
-def perform_gradient_leakage_attack(model, true_gradients, input_shape, original_inputs, config, attack_metrics):
+def perform_gradient_leakage_attack(model, true_gradients, input_shape, output_shape, criterion, original_inputs, config, history):
     device = config.device
+    # Generate randomised reconstructed data and label
     reconstructed_inputs = torch.randn(input_shape, requires_grad = True, device = device)
     assert reconstructed_inputs.shape == original_inputs.shape, f"Reconstructed inputs shape ({reconstructed_inputs.shape}) must match original inputs shape ({original_inputs.shape})"
-    label_shape = (input_shape[0], 10)
-    reconstructed_labels = torch.randn(label_shape, requires_grad = True, device = device)
+    reconstructed_labels = torch.randn(output_shape, requires_grad = True, device = device)
     # reconstructed_labels = torch.argmin(torch.sum(true_gradients[-2], dim = -1), dim = -1).detach().unsqueeze(0).requires_grad_(False)
+    # reconstructed_labels = label_to_onehot(reconstructed_labels, num_classes = 10, device = device)
+    assert reconstructed_labels.shape == output_shape, f"Reconstructed labels shape ({reconstructed_labels.shape}) must match output shape ({output_shape})"
+    print("Reconstructed label is %d." % torch.argmax(reconstructed_labels, dim=-1).item())
     optimizer = torch.optim.LBFGS([reconstructed_inputs, reconstructed_labels], lr = config.gradient_attack_lr)
-    # params = [p for p in model.parameters() if p.requires_grad]
-    print(reconstructed_inputs.shape, reconstructed_labels.shape)
+
     for it in range(config.gradient_attack_iterations):
         def closure():
             optimizer.zero_grad()
-            model.zero_grad()
-            outputs = model(reconstructed_inputs)
-            loss = torch.nn.functional.cross_entropy(outputs, reconstructed_labels)
+            pred = model(reconstructed_inputs) 
+            dummy_onehot_label = torch.nn.functional.softmax(reconstructed_labels, dim = -1)
+            loss = criterion(pred, dummy_onehot_label)
             dummy_grad = torch.autograd.grad(loss, model.parameters(), create_graph = True)
-            # for i, g in enumerate(dummy_grad):
-            #     print(f"Dummy grad {i}: ||g||={g.norm().item():.4f}")
-            # for i, g in enumerate(true_gradients):
-            #     print(f"True grad {i}: ||g||={g.norm().item():.4f}")
-            grad_diff = sum(((dg - tg)**2).sum() / tg.numel()  for dg, tg in zip(dummy_grad, true_gradients))
-            grad_diff += config.gradient_attack_alpha * loss
+            grad_diff = sum(((dg - tg)**2).sum()  for dg, tg in zip(dummy_grad, true_gradients))
+            # grad_diff += config.gradient_attack_alpha * tv_loss(reconstructed_inputs)
             grad_diff.backward()
             return grad_diff
         optimizer.step(closure)
-        # with torch.no_grad():
-        #     reconstructed_inputs.clamp_(-1, 1)
+        
+        # Display progress every 10 iterations
+        if it % 10 == 0: 
+            current_loss = closure()
+            print(f"Iteration {it}/{config.gradient_attack_iterations}: Loss: {current_loss.item()}")
+        history['iteration'].append(it)
+        history['loss'].append(closure().item())
         mse, ssim = calculate_attack_metrics(reconstructed_inputs, original_inputs)
-        attack_metrics['iter'].append(it)
-        attack_metrics['mse'].append(mse)
-        attack_metrics['ssim'].append(ssim)
-        print(f"Iteration {it + 1}/{config.gradient_attack_iterations}: MSE: {mse}, SSIM: {ssim}")
-    return reconstructed_inputs.detach()
+        history['SSIM'].append(ssim)
+        history['reconstructed_inputs'].append(reconstructed_inputs[0].detach().cpu())
+        history['reconstructed_labels'].append(torch.argmax(reconstructed_labels, dim = -1).item())
+    print(f"Reconstructed label is {torch.argmax(reconstructed_labels, dim = -1).item()}.")
+    
+# --- Gradient Leakage Attack Simulation ---
+# def perform_gradient_leakage_attack_old(model, true_gradients, input_shape, original_inputs, config, attack_metrics):
+#     device = config.device
+#     reconstructed_inputs = torch.randn(input_shape, requires_grad = True, device = device)
+#     assert reconstructed_inputs.shape == original_inputs.shape, f"Reconstructed inputs shape ({reconstructed_inputs.shape}) must match original inputs shape ({original_inputs.shape})"
+#     label_shape = (input_shape[0], 10)
+#     reconstructed_labels = torch.randn(label_shape, requires_grad = True, device = device)
+#     # reconstructed_labels = torch.argmin(torch.sum(true_gradients[-2], dim = -1), dim = -1).detach().unsqueeze(0).requires_grad_(False)
+#     optimizer = torch.optim.LBFGS([reconstructed_inputs, reconstructed_labels], lr = config.gradient_attack_lr)
+#     # params = [p for p in model.parameters() if p.requires_grad]
+#     for it in range(config.gradient_attack_iterations):
+#         def closure():
+#             optimizer.zero_grad()
+#             model.zero_grad()
+#             outputs = model(reconstructed_inputs)
+#             loss = torch.nn.functional.cross_entropy(outputs, reconstructed_labels)
+#             dummy_grad = torch.autograd.grad(loss, model.parameters(), create_graph = True)
+#             # for i, g in enumerate(dummy_grad):
+#             #     print(f"Dummy grad {i}: ||g||={g.norm().item():.4f}")
+#             # for i, g in enumerate(true_gradients):
+#             #     print(f"True grad {i}: ||g||={g.norm().item():.4f}")
+#             grad_diff = sum(((dg - tg)**2).sum()  for dg, tg in zip(dummy_grad, true_gradients))
+#             grad_diff += config.gradient_attack_alpha * tv_loss(reconstructed_inputs) + loss
+#             grad_diff.backward()
+#             return grad_diff
+#         optimizer.step(closure)
+#         # with torch.no_grad():
+#         #     reconstructed_inputs.clamp_(0, 1)
+#         mse, ssim = calculate_attack_metrics(reconstructed_inputs, original_inputs)
+#         attack_metrics['iter'].append(it)
+#         attack_metrics['mse'].append(mse)
+#         attack_metrics['ssim'].append(ssim)
+#         print(f"Iteration {it + 1}/{config.gradient_attack_iterations}: MSE: {mse}, SSIM: {ssim}")
+#     return reconstructed_inputs.detach()
+
+def label_to_onehot(target, num_classes, device):
+    target = torch.unsqueeze(target, 1)
+    onehot_target = torch.zeros(target.size(0), num_classes, device = device)
+    onehot_target.scatter_(1, target, 1)
+    return onehot_target
+
+def cross_entropy_for_onehot(pred, target):
+    return torch.mean(torch.sum(- target * torch.nn.functional.log_softmax(pred, dim = -1), 1))
 
 # --- Attack Metrics Calculation Function ---
 def calculate_attack_metrics(reconstructed_batch, original_batch):
