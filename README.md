@@ -1,13 +1,13 @@
-# Differential-Privacy-Project
-Repository for the Differential Privacy Project in the Information Security Course
+# Differential Privacy: Gradient Leakage Attacks in Federated Learning Environments
 
-## Project Description
+In this project, we explore the application of differential privacy techniques, such as DP-SGD or PDP-SGD (i.e., by explicit loss regularization), to mitigate privacy risks in Machine Learning models. We focus on the effectiveness of these techniques against gradient leakage attacks, where optimization methods can be used to reconstruct training instances based on the inner gradients of a model.
 
-This project explores the application of differential privacy techniques, such as DP-SGD or PDP-SGD (by explicit loss regularization), to mitigate privacy risks in Machine Learning models. It also evaluates the effectiveness of these techniques against gradient leakage attacks where optimization methods can be used to reconstruct training instances based on the inner gradients of a model.
+We implement a gradient leakage attack to evaluate the robustness of differentially private models. The attack is based on the work by [Zhu et al. (2019)](https://arxiv.org/abs/1906.08935), which demonstrates how to reconstruct training data from model gradients. Moreover, we compare this *traditional* approach with a more recent one that utilizes explicit regularization to achieve differential privacy. This method is based on the work by [Gonzalez et al. (2024)](https://arxiv.org/abs/2409.17144), which proposes a new approach to achieve differential privacy through loss function regularization.
 
+We also compare the performance of different models, including a custom Convolutional Neural Network (CNN), a pretrained ResNet50, and a pretrained DINOv2 with registers (Vision Transformer), under various levels of differential privacy. The models are evaluated on their classification accuracy over a complex task, specifically the classification of hot-dog vs. not hot-dog images (see [dataset](https://www.kaggle.com/datasets/dansbecker/hot-dog-not-hot-dog/data)). Likewise, we evaluate the reconstruction of training instances from the gradients of a model with differential privacy applied on the standard MNIST dataset.
+
+We utilize the [Opacus](https://opacus.ai/) library by META for implementing differential privacy in our models. The project includes a Jupyter Notebook for analysis and visualization of results, as well as scripts for training and evaluating the models.
 ## Project Structure
-
-### Project Structure
 
 The repository is organized as follows:
 
