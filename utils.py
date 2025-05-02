@@ -117,8 +117,6 @@ def perform_gradient_leakage_attack(model, true_gradients, input_shape, output_s
     reconstructed_inputs = torch.randn(input_shape, requires_grad = True, device = device)
     assert reconstructed_inputs.shape == original_inputs.shape, f"Reconstructed inputs shape ({reconstructed_inputs.shape}) must match original inputs shape ({original_inputs.shape})"
     reconstructed_labels = torch.randn(output_shape, requires_grad = True, device = device)
-    # reconstructed_labels = torch.argmin(torch.sum(true_gradients[-2], dim = -1), dim = -1).detach().unsqueeze(0).requires_grad_(False)
-    # reconstructed_labels = label_to_onehot(reconstructed_labels, num_classes = 10, device = device)
     assert reconstructed_labels.shape == output_shape, f"Reconstructed labels shape ({reconstructed_labels.shape}) must match output shape ({output_shape})"
     print("Reconstructed label is %d." % torch.argmax(reconstructed_labels, dim=-1).item())
     optimizer = torch.optim.LBFGS([reconstructed_inputs, reconstructed_labels], lr = config.gradient_attack_lr)
@@ -128,7 +126,10 @@ def perform_gradient_leakage_attack(model, true_gradients, input_shape, output_s
             optimizer.zero_grad()
             pred = model(reconstructed_inputs) 
             dummy_onehot_label = torch.nn.functional.softmax(reconstructed_labels, dim = -1)
-            loss = criterion(pred, dummy_onehot_label)
+            if config.pdp_sgd:
+                loss = criterion(model, reconstructed_inputs, dummy_onehot_label)
+            else:
+                loss = criterion(pred, dummy_onehot_label)
             dummy_grad = torch.autograd.grad(loss, model.parameters(), create_graph = True)
             grad_diff = sum(((dg - tg)**2).sum()  for dg, tg in zip(dummy_grad, true_gradients))
             # grad_diff += config.gradient_attack_alpha * tv_loss(reconstructed_inputs)
