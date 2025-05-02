@@ -62,13 +62,12 @@ pip install -r requirements.txt
 
 ## Gradient Leakage Reconstruction Attack
 
-1. **Structural Similarity Index Measure (SSIM) Plot**
-    ![SSIM Plot](static/SSIM_Evolution.pdf)
-    <iframe src="static/SSIM_Evolution.pdf" width="100%" height="500" frameborder="0" />
-    ![SSIM Plot Filtered](static/SSIM_Evolution_Filtered.pdf)
+1. **Structural Similarity Index Measure (SSIM) over Reconstruction:**
+    ![SSIM Plot](static/SSIM_Evolution.png)
+    ![SSIM Plot Filtered](static/SSIM_Evolution_Filtered.png)
 
-2. **Reconstruction Loss Plot**  
-    ![Loss Plot](static/Loss_Evolution.pdf)
+2. **Reconstruction Loss Evolution:**  
+    ![Loss Plot](static/Loss_Evolution.png)
 
 ## Good References
 
