@@ -34,6 +34,17 @@ python -m venv env
 source env/bin/activate  # On Windows use `env\Scripts\activate`
 pip install -r requirements.txt
 ```
+4. Running the Code:
+
+In order to run the classification training, you can do so by running the `train.py` script:
+```bash
+python train.py
+````
+To run the gradient leakage attack, you can execute the `gradient_attack.py` script:
+```bash
+python gradient_attack.py
+```
+In both cases, you can specify the model and the dataset to be used by modifying the `config.py` file.
 
 ## Results
 
@@ -68,6 +79,9 @@ pip install -r requirements.txt
 
 2. **Reconstruction Loss Evolution:**  
     ![Loss Plot](static/Loss_Evolution.png)
+
+3. **Example of Reconstruction Evolution (Normal Training):**  
+    ![Reconstruction Evolution](static/reconstructed_images_normal.png)
 
 ## Good References
 
