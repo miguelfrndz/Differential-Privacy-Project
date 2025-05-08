@@ -19,7 +19,6 @@ The repository is organized as follows:
 - **`models.py`**: Implementation of the machine learning models used in the project.
 - **`utils.py`**: Auxiliary utility functions to support various tasks.
 - **`gradient_attack.py`**: Code implementation for the gradient leakage attack.
-- **`requirements.txt`**: File listing the dependencies required for the project.
 
 ## Project Setup
 
@@ -28,21 +27,21 @@ The repository is organized as follows:
 ```bash
 unzip data.zip
 ```
-3. Create a virtual environment and install the required packages
-```bash
-python -m venv env
-source env/bin/activate  # On Windows use `env\Scripts\activate`
-pip install -r requirements.txt
-```
-4. Running the Code:
+3. Running the Code:
+
+> [!NOTE]  
+> The project has recently switched to using the `uv` package manager for automatically managing dependencies without the need for manually installing and updating them. Please make sure to have `uv` installed in your system. Otherwise, you can install it following the instructions in the [uv documentation](https://docs.astral.sh/uv/).
+
+> [!IMPORTANT]
+> When running the code for the first time, `uv` will automatically install all the required dependencies in a virtual environment. This process may take a few minutes, depending on your internet connection and system performance. You do not need to worry about syncing the lock file or the virtual environment, the package manager will handle everything for you.
 
 In order to run the classification training, you can do so by running the `train.py` script:
 ```bash
-python train.py
+uv run train.py
 ````
 To run the gradient leakage attack, you can execute the `gradient_attack.py` script:
 ```bash
-python gradient_attack.py
+uv run gradient_attack.py
 ```
 In both cases, you can specify the model and the dataset to be used by modifying the `config.py` file.
 
